@@ -1,0 +1,119 @@
+Overview
+The goal is to automate the process of fetching, packaging, and syncing content between Adobe Experience Manager (AEM) instances using Query Builder queries and Curl, and to host the sync utility as an Azure Function for scalability and ease of management.
+
+Problem Statement
+Content synchronization between AEM instances (e.g., from development to staging or production) is often manual and error-prone. Automating this process can enhance efficiency, reduce errors, and ensure consistency across environments.
+
+Proposed Solution
+Utilize AEM Query Builder: Leverage Query Builder to fetch the required content paths based on specific criteria.
+Automate Package Creation: Programmatically create and build AEM packages using the fetched content.
+Sync Content Using Curl: Transfer the created packages between AEM instances using Curl commands.
+Host Sync Utility as Azure Function: Deploy the sync utility as an Azure Function for automated and scalable execution.
+Implementation Steps
+Step 1: Set Up Query Builder
+
+Define Query Builder parameters in a JSON file to specify the criteria for fetching content.
+Example query definition (query.json):
+json
+Copy code
+{
+  "path": "/content/my-site",
+  "type": "cq:Page",
+  "p.limit": "-1"
+}
+Execute the query using Curl:
+sh
+Copy code
+curl -u admin:admin "http://localhost:4502/bin/querybuilder.json" --data @query.json
+Step 2: Create a Package Programmatically
+
+Write a script to fetch query results and create an AEM package.
+Example Bash script (create_package.sh):
+sh
+Copy code
+#!/bin/bash
+
+AEM_URL="http://localhost:4502"
+AEM_USER="admin"
+AEM_PASS="admin"
+PACKAGE_NAME="my-site-content"
+PACKAGE_GROUP="my-site"
+PACKAGE_PATH="/etc/packages/${PACKAGE_GROUP}/${PACKAGE_NAME}.zip"
+QUERY_FILE="query.json"
+
+# Fetch content paths using Query Builder
+CONTENT_PATHS=$(curl -u $AEM_USER:$AEM_PASS "$AEM_URL/bin/querybuilder.json" --data @$QUERY_FILE | jq -r '.hits[].path')
+
+# Create a package
+curl -u $AEM_USER:$AEM_PASS -F packageName=$PACKAGE_NAME -F groupName=$PACKAGE_GROUP -F filter="[{\"root\":\"$CONTENT_PATHS\",\"rules\":[]}]"
+  "$AEM_URL/crx/packmgr/service/.json/etc/packages/$PACKAGE_GROUP/$PACKAGE_NAME.zip?cmd=create"
+
+# Build the package
+curl -u $AEM_USER:$AEM_PASS -X POST "$AEM_URL/crx/packmgr/service/.json${PACKAGE_PATH}?cmd=build"
+Step 3: Sync Content Using Curl
+
+Download the created package:
+sh
+Copy code
+curl -u $AEM_USER:$AEM_PASS -o $PACKAGE_NAME.zip "$AEM_URL$PACKAGE_PATH?cmd=download"
+Upload the package to another AEM instance:
+sh
+Copy code
+DEST_AEM_URL="http://another-aem-instance:4502"
+DEST_AEM_USER="admin"
+DEST_AEM_PASS="admin"
+
+curl -u $DEST_AEM_USER:$DEST_AEM_PASS -F file=@"$PACKAGE_NAME.zip" -F name="$PACKAGE_NAME.zip" "$DEST_AEM_URL/crx/packmgr/service/.json?cmd=upload"
+Step 4: Host Sync Utility as Azure Function
+
+Create an Azure Function app using the Azure portal or Azure CLI.
+Convert the Bash script into a Python-based Azure Function for ease of integration.
+Example Azure Function (Python):
+python
+Copy code
+import logging
+import os
+import requests
+from azure.functions import HttpRequest, HttpResponse
+
+def main(req: HttpRequest) -> HttpResponse:
+    AEM_URL = os.getenv("AEM_URL")
+    AEM_USER = os.getenv("AEM_USER")
+    AEM_PASS = os.getenv("AEM_PASS")
+    PACKAGE_NAME = "my-site-content"
+    PACKAGE_GROUP = "my-site"
+    PACKAGE_PATH = f"/etc/packages/{PACKAGE_GROUP}/{PACKAGE_NAME}.zip"
+    QUERY_FILE = "query.json"
+
+    with open(QUERY_FILE, 'r') as file:
+        query_data = file.read()
+    
+    # Fetch content paths using Query Builder
+    response = requests.post(f"{AEM_URL}/bin/querybuilder.json", auth=(AEM_USER, AEM_PASS), data=query_data)
+    content_paths = [hit['path'] for hit in response.json()['hits']]
+    
+    # Create a package
+    filter_data = [{"root": path, "rules": []} for path in content_paths]
+    create_package_response = requests.post(
+        f"{AEM_URL}/crx/packmgr/service/.json/etc/packages/{PACKAGE_GROUP}/{PACKAGE_NAME}.zip?cmd=create",
+        auth=(AEM_USER, AEM_PASS),
+        data={"packageName": PACKAGE_NAME, "groupName": PACKAGE_GROUP, "filter": filter_data}
+    )
+
+    # Build the package
+    build_package_response = requests.post(
+        f"{AEM_URL}/crx/packmgr/service/.json{PACKAGE_PATH}?cmd=build",
+        auth=(AEM_USER, AEM_PASS)
+    )
+
+    if build_package_response.status_code == 200:
+        return HttpResponse("Package created and built successfully.")
+    else:
+        return HttpResponse(f"Failed to build package: {build_package_response.text}", status_code=500)
+Benefits
+Efficiency: Automates repetitive tasks, saving time and reducing human errors.
+Consistency: Ensures content synchronization is consistent across different AEM instances.
+Scalability: Hosting the sync utility as an Azure Function allows for scalable and on-demand execution.
+Manageability: Simplifies management and execution of the sync process, reducing operational overhead.
+Conclusion
+By implementing this automated content sync solution using Query Builder, Curl, and Azure Functions, we can achieve a streamlined, efficient, and scalable process for managing content synchronization between AEM instances. This PoC demonstrates the feasibility and benefits of the proposed approach, paving the way for a full-scale implementation in production environments.
