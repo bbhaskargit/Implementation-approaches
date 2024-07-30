@@ -1,3 +1,4 @@
+https://youtu.be/8Q4bChZ5uO4
 Overview
 The goal is to automate the process of fetching, packaging, and syncing content between Adobe Experience Manager (AEM) instances using Query Builder queries and Curl, and to host the sync utility as an Azure Function for scalability and ease of management.
 
